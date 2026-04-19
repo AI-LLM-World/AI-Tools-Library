@@ -1,0 +1,20 @@
+{
+  "name": "gstack-monorepo",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm --workspace=@gstack/backend run dev\" \"npm --workspace=@gstack/frontend run dev\" \"npm --workspace=@gstack/worker run dev\"",
+    "lint": "eslint \"./packages/**/src/**/*.{ts,tsx,js,jsx}\" --max-warnings=0",
+    "test": "echo \"No tests yet\"",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "concurrently": "^7.6.0",
+    "eslint": "^8.46.0",
+    "@typescript-eslint/parser": "^6.6.0",
+    "@typescript-eslint/eslint-plugin": "^6.6.0",
+    "prettier": "^2.8.8"
+  }
+}
