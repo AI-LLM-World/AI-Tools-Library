@@ -79,9 +79,53 @@ function loadTools() {
       return;
     }
 
-    // Basic validation: ensure required fields exist. This prevents
-    // runtime crashes if the file is partially written or malformed.
-    allTools = parsed.filter((item: any) => item && typeof item.id === "string" && typeof item.name === "string");
+    // Prefer AJV for validation when available. If AJV is not installed,
+    // fall back to a minimal validator that checks id and name.
+    let validated: any[] = [];
+    try {
+      // eslint-disable-next-line global-require
+      const Ajv = require("ajv");
+      const ajv = new Ajv({ allErrors: true, strict: false });
+      const itemSchema = {
+        type: "object",
+        required: ["id", "name"],
+        properties: {
+          id: { type: "string" },
+          name: { type: "string" },
+          category: { type: "string" },
+          short_description: { type: "string" },
+          website: { type: "string" },
+          tags: { type: "array", items: { type: "string" } },
+          example_use: { type: "string" }
+        },
+        additionalProperties: true
+      };
+
+      const validateAjv = ajv.compile(itemSchema);
+      for (const it of parsed) {
+        if (validateAjv(it)) {
+          validated.push(it);
+        } else {
+          // eslint-disable-next-line no-console
+          console.warn("Validation failed for item id=", it && it.id, validateAjv.errors);
+        }
+      }
+    } catch (err) {
+      if (err && err.code === "MODULE_NOT_FOUND") {
+        // AJV not available — fallback to minimal checks
+        validated = parsed.filter((it: any) => it && typeof it.id === "string" && typeof it.name === "string");
+      } else {
+        throw err;
+      }
+    }
+
+    if (validated.length === 0) {
+      // eslint-disable-next-line no-console
+      console.error("No valid items found in ai_tools.json");
+      allTools = [];
+    } else {
+      allTools = validated;
+    }
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error("Failed to load ai_tools.json:", err);
