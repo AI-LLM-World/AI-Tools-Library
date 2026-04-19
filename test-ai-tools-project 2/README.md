@@ -15,3 +15,6 @@ Getting started (developer)
 3. Start infra: `docker compose up -d`
 4. Start apps: `npm run dev`
 5. Frontend: http://localhost:5173, Backend: http://localhost:4000/health
+
+Documentation
+- AI Tool Library docs: docs/AI_TOOL_LIBRARY.md
