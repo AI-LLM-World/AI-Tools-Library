@@ -16,8 +16,13 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+
+    // Allow overriding backend URL via env var for different deploys.
+    // Prefer CRA-style REACT_APP_BACKEND_URL for compatibility, fall back to localhost.
+    const baseUrl = (process.env.REACT_APP_BACKEND_URL as string) || "http://localhost:4000";
+
     axios
-      .get("http://localhost:4000/api/tools", { params: { q: debouncedQ, limit: 20 } })
+      .get(`${baseUrl}/api/tools`, { params: { q: debouncedQ, limit: 20 } })
       .then((r) => {
         if (!cancelled) setResults(r.data.results || []);
       })
