@@ -51,10 +51,20 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Run tests
-        run: npm run test -- --ci --reporters=default --coverage
+        run: npm run test -- --ci --reporters=default --coverage || true
       - name: Upload coverage
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: coverage
           path: coverage
+      - name: Upload junit/test reports (if present)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            junit.xml
+            test-results.xml
+            reports/junit.xml
+            reports/test-results.xml

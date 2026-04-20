@@ -1,0 +1,25 @@
+Diagrams - GSTA-24: Components & Sequence
+
+Component diagram:
+
+  [Client script / Browser] ---> [Backend API]
+                                    |---> [Submissions Store: data/submissions.json or submissions table]
+                                    |---> [Published Tools: data/ai_tools.json or tools table]
+                                    |---> [Audit log/metrics]
+
+Sequence: submit -> review -> publish
+
+  Client -> Backend: POST /api/tools/submit (Basic Auth, X-Idempotency-Key)
+  Backend -> Validate
+  Backend -> Storage: atomicWrite(submissions.json)
+  Backend -> Respond 201 {id, status: pending}
+  Admin -> Backend: POST /api/admin/submissions/{id}/approve
+  Backend -> Move record -> Published tools (atomic promote: file replace or DB transaction)
+  Backend -> Emit audit event & metrics
+
+State transitions
+
+  pending -> approved -> published
+  pending -> rejected -> closed
+
+(End of file)

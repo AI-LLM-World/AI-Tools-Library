@@ -1,0 +1,13 @@
+Sequence: Backfill and rollout (ASCII)
+
+  File (data/ai_tools.json)    --> Backfill script    --> Postgres.tools table
+             |                        |                          |
+             |--- read/validate --->  |                          |
+                                     batch upsert (ON CONFLICT)
+                                                       |
+                                                       V
+                                            Application reads from DB (feature-flagged)
+
+State diagram
+
+  [File-backed] --(backfill)--> [Dual-read (file+DB)] --(switch)--> [DB-only]

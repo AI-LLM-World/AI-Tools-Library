@@ -1,0 +1,27 @@
+Sequence: Resource lifecycle + Audit Log (high level)
+---------------------------------------------------
+
+User -> API: POST /projects/:id/resources {payload}
+API -> DB: BEGIN TRANSACTION
+API -> DB: INSERT INTO resources (...) RETURNING id, created_at
+API -> DB: INSERT INTO audit_logs (organization_id, actor_id, resource_type, resource_id, action, payload) VALUES (...)
+API -> DB: COMMIT
+API -> User: 201 Created {id, created_at}
+
+Update flow:
+User -> API: PATCH /projects/:id/resources/:rid {changes}
+API -> DB: BEGIN TRANSACTION
+API -> DB: SELECT before_snapshot FROM resources WHERE id = :rid
+API -> DB: UPDATE resources SET ... WHERE id = :rid
+API -> DB: INSERT INTO audit_logs (...) -- include before and after snapshots
+API -> DB: COMMIT
+API -> User: 200 OK
+
+Soft-delete flow:
+User -> API: DELETE /projects/:id/resources/:rid
+API -> DB: UPDATE resources SET deleted_at = now(), status='deleted'
+API -> DB: INSERT INTO audit_logs (...) -- record deletion
+
+Notes:
+- Keep the audit insertion inside the same DB transaction as the mutation to ensure atomicity.
+- Keep audit payloads reasonably small; store large blobs externally and reference them when necessary.
