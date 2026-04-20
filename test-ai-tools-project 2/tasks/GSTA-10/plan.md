@@ -187,45 +187,18 @@ Total estimated work: ~29 engineer-days (team can parallelize across 2 engineers
 
 Subtasks, Owners, Acceptance Criteria
 ------------------------------------
-1) Setup: Monorepo packages, basic build tooling, storybook
-   - Owner: Release Engineer
-   - Estimate: 2d
-   - Acceptance: packages/ layout created, storybook builds locally, CI skeleton present
+Created subtask files under tasks/GSTA-10/subtasks/:
 
-2) Tokens + ThemeProvider (Light/Dark) + example injection
-   - Owner: Staff Engineer
-   - Estimate: 4d
-   - Acceptance: tokens.json + tokens.css emitted; ThemeProvider toggles themes; example story shows both
+- 01-setup.md — Release Engineer — 2d
+- 02-tokens-theme.md — Staff Engineer — 4d
+- 03-button.md — Staff Engineer — 3d
+- 04-form-controls.md — Engineer A — 5d
+- 05-modal-tooltip-card.md — Engineer B — 5d
+- 06-tabs-accordion-table-toast.md — Engineer A — 5d
+- 07-visual-regression.md — Release Engineer — 3d
+- 08-pilot-integration.md — Staff Engineer — 2d
 
-3) Button (core) + stories + tests
-   - Owner: Staff Engineer
-   - Estimate: 3d
-   - Acceptance: stories cover variants; unit tests + a11y checks pass; visual snapshot available
-
-4) Inputs + Checkbox + Select
-   - Owner: Engineer A
-   - Estimate: 5d
-   - Acceptance: stories + tests + accessibility checks
-
-5) Modal + Tooltip + Card
-   - Owner: Engineer B
-   - Estimate: 5d
-   - Acceptance: focus trap, portal handling, stories and tests
-
-6) Tabs + Accordion + Table + Toast
-   - Owner: Engineer A
-   - Estimate: 5d
-   - Acceptance: stories + tests + accessibility checks
-
-7) Visual regression integration (Chromatic) and CI gating
-   - Owner: Release Engineer
-   - Estimate: 3d
-   - Acceptance: snapshots are recorded against PR builds, CI can fail on visual diffs if configured
-
-8) Pilot integration with internal app + migration notes
-   - Owner: Staff Engineer + App Owner
-   - Estimate: 2d
-   - Acceptance: pilot app uses components, no regressions in UI, migration guide created
+Each file contains acceptance criteria and a checklist for PR reviewers.
 
 PR & Review Checklist (must be checked before merge)
 -------------------------------------------------

@@ -1,6 +1,6 @@
 {
   "name": "@gstack/worker",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "private": true,
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/worker.ts",

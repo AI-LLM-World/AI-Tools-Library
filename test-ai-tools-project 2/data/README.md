@@ -17,3 +17,37 @@ Suggested next steps
 
 Notes
 - Keep ids stable across runs to avoid creating duplicate entities. The sample dataset contains 52 entries across multiple categories.
+
+Loader included
+----------------
+This repository includes a small Node-based loader at `scripts/load_ai_tools.js` that upserts the records into a Postgres database. Usage:
+
+1. Install dependencies inside the scripts folder (from repo root):
+
+   cd "test-ai-tools-project 2/scripts" && npm ci
+
+2. Set `DATABASE_URL` in your environment. Example:
+
+   export DATABASE_URL=postgres://user:pass@localhost:5432/mydb
+
+3. Optionally create the recommended table (the loader will create it if `--create-table` is provided):
+
+   node load_ai_tools.js --create-table
+
+4. Run the loader (dry-run shows a sample record without mutating DB):
+
+   node load_ai_tools.js --dry-run
+   node load_ai_tools.js
+
+What the loader does
+- Validates required fields (id, name, category).
+- Normalizes tags to lowercase and deduplicates them.
+- Upserts by `slug` into table `ai_tools` (schema created when running with `--create-table`).
+- Writes provenance metadata with source_file, import_timestamp, source_commit (if git available), and imported_by.
+
+Recommended indexes / DDL hints
+- The loader creates a minimal table when `--create-table` is passed. In production you should ensure:
+  - UNIQUE index on `slug` (used for idempotent upserts)
+  - Index on `category` if you filter by it
+  - GIN index on `tags` (jsonb array) for tag lookups: `CREATE INDEX idx_ai_tools_tags ON ai_tools USING gin (tags);`
+  - Index on `updated_at` if you filter by recent updates

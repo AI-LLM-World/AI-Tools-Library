@@ -1,0 +1,25 @@
+name: Scraper CI
+
+on:
+  push:
+    paths:
+      - 'packages/scraper/**'
+      - 'docs/**'
+  pull_request:
+    paths:
+      - 'packages/scraper/**'
+      - 'docs/**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - name: Install
+        run: npm ci --prefix packages/scraper
+      - name: Run scraper integration test
+        run: npm --prefix packages/scraper test

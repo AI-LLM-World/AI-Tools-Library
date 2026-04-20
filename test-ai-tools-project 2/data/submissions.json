@@ -1,0 +1,16 @@
+[
+  {
+    "id": "test-sub-1776615519434",
+    "name": "Test Submission 1776615519434",
+    "category": "Test",
+    "short_description": "Automated test submission",
+    "website": "https://example.com",
+    "tags": [
+      "test"
+    ],
+    "example_use": "Used in tests",
+    "status": "approved",
+    "createdAt": "2026-04-19T16:18:39.434Z",
+    "approvedAt": "2026-04-19T16:18:39.445Z"
+  }
+]
