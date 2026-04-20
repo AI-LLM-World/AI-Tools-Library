@@ -1,6 +1,6 @@
 {
   "name": "ai-tools-loader",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Loader for data/ai_tools.json into Postgres",
   "main": "load_ai_tools.js",
   "bin": {
