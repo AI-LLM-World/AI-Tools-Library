@@ -17,20 +17,22 @@ def _extract_fenced_code(text: str) -> List[str]:
 
 
 def _find_json_in_text(text: str) -> Any:
-    # Try direct parse first
+    # Try direct parse first (covers both objects and arrays)
     try:
         return json.loads(text)
     except Exception:
         pass
 
-    # Attempt to extract a JSON object substring
-    m = re.search(r"(\{(?:.|\n)*\})", text)
-    if m:
+    # Attempt to extract a JSON object or array substring.
+    # Use a non-greedy search and try each match until one parses cleanly.
+    pattern = re.compile(r"(\{(?:.|\n)*?\}|\[(?:.|\n)*?\])", re.S)
+    for m in pattern.finditer(text):
         candidate = m.group(1)
         try:
             return json.loads(candidate)
         except Exception:
-            pass
+            # try next match
+            continue
     return None
 
 
@@ -40,24 +42,91 @@ def _validate_code(code: str) -> Tuple[bool, str | None]:
         tree = ast.parse(code)
     except SyntaxError as e:
         return False, f"syntax error: {e}"
+    # Conservative two-pass analysis inspired by CLI validation: build an
+    # import alias map, catch unsafe imports, then inspect calls/attributes.
+    unsafe_imports = {
+        "subprocess",
+        "socket",
+        "requests",
+        "importlib",
+        "urllib",
+        "urllib3",
+        "http",
+        "ftplib",
+        "smtplib",
+        "paramiko",
+        "telnetlib",
+        "websocket",
+        "websockets",
+        "multiprocessing",
+        "psutil",
+        "boto3",
+        "builtins",
+    }
 
-    # Walk AST to find unsafe imports or calls
-    unsafe_imports = {"subprocess", "socket", "requests"}
-    unsafe_calls = {"open"}
+    # Names that are unsafe when called directly
+    unsafe_calls = {
+        "open",
+        "eval",
+        "exec",
+        "compile",
+        "__import__",
+        "input",
+        "getattr",
+        "setattr",
+        "delattr",
+        "globals",
+        "locals",
+        "vars",
+        "dir",
+    }
+
+    # Dangerous attribute names (system/popen/run/open etc)
+    unsafe_attrs = {"system", "popen", "run", "open", "exec", "eval", "check_output", "Popen"}
+
+    alias_map: Dict[str, str] = {}
+
+    # First pass: inspect imports and populate alias_map and catch simple unsafe imports
     for node in ast.walk(tree):
-        if isinstance(node, (ast.Import, ast.ImportFrom)):
+        if isinstance(node, ast.Import):
             for n in getattr(node, "names", []):
-                if n.name.split(".")[0] in unsafe_imports:
+                top = n.name.split(".")[0]
+                if top in unsafe_imports:
                     return False, f"blocked import: {n.name}"
+                asname = n.asname or n.name.split(".")[0]
+                alias_map[asname] = n.name
+
+        elif isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            top = module.split(".")[0] if module else ""
+            if top in unsafe_imports:
+                return False, f"blocked import: {module}"
+            # explicitly block dangerous from-imports from 'os' (e.g. from os import system)
+            for n in getattr(node, "names", []):
+                name = n.name
+                asname = n.asname or name
+                full = f"{module}.{name}" if module else name
+                if module == "os" and name in ("system", "popen", "popen2", "popen3", "popen4"):
+                    return False, f"blocked import: {full}"
+                alias_map[asname] = full
+
+    # Second pass: inspect calls and attribute access
+    for node in ast.walk(tree):
         if isinstance(node, ast.Call):
             func = node.func
-            # func could be Name or Attribute
+
+            # Direct name call: open(...), eval(...), getattr(...)
             if isinstance(func, ast.Name):
                 if func.id in unsafe_calls:
                     return False, f"blocked call: {func.id}"
+                mapped = alias_map.get(func.id)
+                if mapped:
+                    if mapped.split(".")[0] in unsafe_imports or mapped.startswith("os."):
+                        return False, f"blocked call (via import): {mapped}"
+
+            # Attribute calls: os.system(...), o.system(...) where o was aliased
             elif isinstance(func, ast.Attribute):
-                # check for os.system / os.popen / subprocess.* style calls
-                attr_chain = []
+                attr_chain: List[str] = []
                 cur = func
                 while isinstance(cur, ast.Attribute):
                     attr_chain.append(cur.attr)
@@ -65,8 +134,49 @@ def _validate_code(code: str) -> Tuple[bool, str | None]:
                 if isinstance(cur, ast.Name):
                     attr_chain.append(cur.id)
                 full = ".".join(reversed(attr_chain))
-                if full.startswith("os.") or full.startswith("subprocess"):
-                    return False, f"blocked attribute call: {full}"
+
+                # resolve alias for top-level name if present
+                parts = full.split(".") if full else []
+                if parts:
+                    top = parts[0]
+                    real_top = alias_map.get(top, top)
+                    if real_top != top:
+                        rest = parts[1:]
+                        full_real = real_top + ("." + ".".join(rest) if rest else "")
+                    else:
+                        full_real = full
+                else:
+                    full_real = full
+
+                if full_real.startswith("os.") or full_real.startswith("subprocess") or full_real.split(".")[0] in unsafe_imports:
+                    return False, f"blocked attribute call: {full_real}"
+
+                if attr_chain:
+                    outer = attr_chain[0]
+                    if outer in unsafe_attrs or outer.lower() in {a.lower() for a in unsafe_calls}:
+                        return False, f"blocked attribute call: {full_real or outer}"
+
+            # Indirect calls: getattr(...)(...), __import__(...)(...), (importlib.import_module(...))(...)
+            elif isinstance(func, ast.Call):
+                inner = func.func
+                if isinstance(inner, ast.Name):
+                    if inner.id in unsafe_calls:
+                        return False, f"blocked indirect call via: {inner.id}"
+                    mapped = alias_map.get(inner.id)
+                    if mapped and (mapped.split(".")[0] in unsafe_imports or mapped.startswith("os.")):
+                        return False, f"blocked indirect call via import: {mapped}"
+                elif isinstance(inner, ast.Attribute):
+                    # reconstruct inner attribute chain
+                    attr_chain2: List[str] = []
+                    cur2 = inner
+                    while isinstance(cur2, ast.Attribute):
+                        attr_chain2.append(cur2.attr)
+                        cur2 = cur2.value
+                    if isinstance(cur2, ast.Name):
+                        attr_chain2.append(cur2.id)
+                    full2 = ".".join(reversed(attr_chain2)) if attr_chain2 else ""
+                    if full2.startswith("os.") or full2.startswith("subprocess") or "importlib." in full2:
+                        return False, f"blocked indirect attribute call: {full2}"
 
     return True, None
 
