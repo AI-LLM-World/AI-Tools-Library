@@ -113,3 +113,10 @@ Next actions (for CTO)
 ----------------------
 - Ask Product for domain-specific attributes (resource types, quotas, billing fields) so final schema can include those columns.
 - Assign the Staff Engineer to run the product alignment meeting within 24 hours.
+
+CTO Follow-up (2026-04-20)
+---------------------------
+- I added a locked technical execution plan (tasks/GSTA-7/technical_execution_plan.md) that maps schema.sql to Prisma, CI, migrations, tests, and runbook steps. Immediate next owners and estimates are in that plan.
+- Staff Engineer: schedule Product alignment meeting within 24h and update schema.sql if Product requests attribute changes.
+- Release Engineer: prepare Postgres CI job that runs migrations and integration tests; aim to have CI template PR within 48h.
+- Backend Engineer: prepare PR updating prisma/schema.prisma to match schema.sql and include migrations. Coordinate with Release Engineer for migration placement.

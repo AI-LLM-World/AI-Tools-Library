@@ -1,0 +1,68 @@
+[
+  {
+    "branch": "origin/GSTA-18",
+    "worktree_path": "F:\\Test Project\\merge-tests\\origin_GSTA-18",
+    "merge_ok": false,
+    "output": "fatal: refusing to merge unrelated histories\n"
+  },
+  {
+    "branch": "origin/gsta-15/create-pr",
+    "worktree_path": "F:\\Test Project\\merge-tests\\origin_gsta-15_create-pr",
+    "merge_ok": false,
+    "output": "fatal: refusing to merge unrelated histories\n"
+  },
+  {
+    "branch": "origin/gsta-36/ci-smoke-tests",
+    "worktree_path": "F:\\Test Project\\merge-tests\\origin_gsta-36_ci-smoke-tests",
+    "merge_ok": false,
+    "output": "fatal: refusing to merge unrelated histories\n"
+  },
+  {
+    "branch": "origin/gsta-36/ci-smoke-tests-fix-atomic-validate",
+    "worktree_path": "F:\\Test Project\\merge-tests\\origin_gsta-36_ci-smoke-tests-fix-atomic-validate",
+    "merge_ok": false,
+    "output": "fatal: refusing to merge unrelated histories\n"
+  },
+  {
+    "branch": "origin/gsta-41/ci-improvements",
+    "worktree_path": "F:\\Test Project\\merge-tests\\origin_gsta-41_ci-improvements",
+    "merge_ok": false,
+    "output": "fatal: refusing to merge unrelated histories\n"
+  },
+  {
+    "branch": "origin/gsta-53/add-scraper-runner",
+    "worktree_path": "F:\\Test Project\\merge-tests\\origin_gsta-53_add-scraper-runner",
+    "merge_ok": false,
+    "output": "fatal: refusing to merge unrelated histories\n"
+  },
+  {
+    "branch": "origin/gsta-78/create-pr",
+    "worktree_path": "F:\\Test Project\\merge-tests\\origin_gsta-78_create-pr",
+    "merge_ok": false,
+    "output": "fatal: refusing to merge unrelated histories\n"
+  },
+  {
+    "branch": "origin/gsta-81/ci-infra-skeleton",
+    "worktree_path": "F:\\Test Project\\merge-tests\\origin_gsta-81_ci-infra-skeleton",
+    "merge_ok": false,
+    "output": "fatal: refusing to merge unrelated histories\n"
+  },
+  {
+    "branch": "origin/gsta6/phase1-scaffold",
+    "worktree_path": "F:\\Test Project\\merge-tests\\origin_gsta6_phase1-scaffold",
+    "merge_ok": false,
+    "output": "fatal: refusing to merge unrelated histories\n"
+  },
+  {
+    "branch": "origin/release/gsta-47/add-ci-smoke-tests",
+    "worktree_path": "F:\\Test Project\\merge-tests\\origin_release_gsta-47_add-ci-smoke-tests",
+    "merge_ok": false,
+    "output": "fatal: refusing to merge unrelated histories\n"
+  },
+  {
+    "branch": "origin/release/gsta-51/ci-smoke-tests",
+    "worktree_path": "F:\\Test Project\\merge-tests\\origin_release_gsta-51_ci-smoke-tests",
+    "merge_ok": false,
+    "output": "fatal: refusing to merge unrelated histories\n"
+  }
+]
