@@ -6,7 +6,9 @@ function validate(root) {
   try {
     // eslint-disable-next-line global-require, import/no-extraneous-dependencies
     const Ajv = require('ajv');
-    const ajv = new Ajv({ allErrors: true, strict: false });
+    // Use strict mode and collect all errors so we fail fast on schema
+    // violations including unknown properties.
+    const ajv = new Ajv({ allErrors: true, strict: true });
     const schema = {
       type: 'array',
       items: {
@@ -21,32 +23,44 @@ function validate(root) {
           tags: { type: 'array', items: { type: 'string' } },
           example_use: { type: 'string' }
         },
-        additionalProperties: true
+        // Disallow unknown properties at the ingestion boundary.
+        additionalProperties: false
       }
     };
 
     const validateAjv = ajv.compile(schema.items);
-    const valid = [];
+    const invalid = [];
     for (const it of root) {
-      if (validateAjv(it)) {
-        valid.push(it);
-      } else {
-        // best-effort logging for invalid items; do not crash entire run
-        // eslint-disable-next-line no-console
-        console.warn('Validation failed for item id=', it && it.id, validateAjv.errors);
+      if (!validateAjv(it)) {
+        invalid.push({ id: (it && it.id) || null, errors: validateAjv.errors });
       }
     }
 
-    if (valid.length === 0) throw new Error('No valid items after validation');
-    return valid;
+    if (invalid.length > 0) {
+      // Fail fast: do not silently drop items. Expose the first error for
+      // operational triage. Callers can decide whether to keep previous data.
+      // eslint-disable-next-line no-console
+      console.error('Validation failed for', invalid.length, 'items; first errors=', invalid[0].errors);
+      throw new Error('Validation failed for scraped items');
+    }
+
+    return root;
   } catch (err) {
     // If AJV isn't installed, fall back to the simple validator so the
     // scraper remains usable in minimal environments.
     if (err && err.code === 'MODULE_NOT_FOUND') {
+      // Implement a strict fallback validator that also rejects unknown props
+      const allowed = new Set(['id', 'name', 'category', 'short_description', 'website', 'tags', 'example_use']);
       for (const it of root) {
         if (!it || typeof it !== 'object') throw new Error('Each item must be an object');
         if (typeof it.id !== 'string' || it.id.trim() === '') throw new Error('Each item must have a string id');
         if (typeof it.name !== 'string' || it.name.trim() === '') throw new Error('Each item must have a string name');
+        for (const k of Object.keys(it)) {
+          if (!allowed.has(k)) throw new Error(`Unknown property '${k}' in item ${it.id || '<unknown>'}`);
+        }
+        if ('tags' in it && (!Array.isArray(it.tags) || it.tags.some((t) => typeof t !== 'string'))) {
+          throw new Error('tags must be an array of strings');
+        }
       }
       return root;
     }

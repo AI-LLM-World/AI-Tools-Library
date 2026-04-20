@@ -23,17 +23,20 @@ async function runOnce(outDir) {
 
   // load all .js scrapers in scrapersDir
   if (fs.existsSync(scrapersDir)) {
-    const files = fs.readdirSync(scrapersDir);
+    // read and sort filenames so load order is deterministic (first-wins dedupe)
+    let files = fs.readdirSync(scrapersDir).filter((f) => f.endsWith('.js'));
+    files = files.sort();
     for (const f of files) {
-      if (f.endsWith('.js')) {
-        try {
-          const mod = require(path.join(scrapersDir, f));
-          if (typeof mod.run === 'function') {
-            scrapers.push(mod.run);
-          }
-        } catch (err) {
-          console.error('Failed to load scraper', f, err);
+      try {
+        const mod = require(path.join(scrapersDir, f));
+        if (typeof mod.run === 'function') {
+          scrapers.push(mod.run);
+        } else {
+          // better logging when a scraper module does not match the expected API
+          console.warn('Scraper module does not export run():', f);
         }
+      } catch (err) {
+        console.error('Failed to load scraper', f, err);
       }
     }
   }
@@ -63,15 +66,18 @@ async function runOnce(outDir) {
   }
   const final = Array.from(byId.values());
 
-  // validate
-  validate(final);
+  // validate - validate may return a filtered list (when AJV is present)
+  // ensure we use the returned, validated items to avoid writing invalid data
+  const validated = validate(final);
+  // prefer the validated array (validate returns the original root when AJV is absent)
+  const finalValidated = Array.isArray(validated) ? validated : final;
 
   // write to outDir/ai_tools.json
   const dest = path.join(outDir, 'ai_tools.json');
-  const content = JSON.stringify(final, null, 2) + '\n';
+  const content = JSON.stringify(finalValidated, null, 2) + '\n';
   const backup = safeReplace.atomicReplace(dest, content);
-  console.log('Wrote', dest, 'records=', final.length, 'backup=', backup || 'none');
-  return { dest, records: final.length, backup };
+  console.log('Wrote', dest, 'records=', finalValidated.length, 'backup=', backup || 'none');
+  return { dest, records: finalValidated.length, backup };
 }
 
 function parseArgs() {
