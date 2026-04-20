@@ -40,7 +40,18 @@ if (!submissionsAdminKey) {
 }
 
 function requireAdmin(req: any, res: any, next: any) {
-  if (!submissionsAdminKey) return res.status(403).json({ error: 'admin endpoints disabled (no admin key configured)' });
+  // If no admin key is configured, allow access in non-production environments
+  // to preserve developer convenience, but block in production. Log a loud
+  // warning so it's obvious when dev is running in an insecure state.
+  if (!submissionsAdminKey) {
+    if (process.env.NODE_ENV === 'production') {
+      return res.status(403).json({ error: 'admin endpoints disabled (no admin key configured)' });
+    }
+    // eslint-disable-next-line no-console
+    console.warn('WARNING: SUBMISSIONS_ADMIN_KEY is not set. Admin endpoints are unprotected in non-production environments.');
+    return next();
+  }
+
   const header = (req.headers['x-admin-api-key'] || req.headers['authorization'] || "") as string;
   if (!header) return res.status(401).json({ error: 'unauthorized' });
   if (header.startsWith('Bearer ')) {
