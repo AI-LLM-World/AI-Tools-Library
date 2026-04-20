@@ -1,0 +1,16 @@
+{
+  "name": "@gstack/worker",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "ts-node-dev --respawn --transpile-only src/worker.ts",
+    "start": "node dist/worker.js"
+  },
+  "dependencies": {
+    "ioredis": "^5.5.3"
+  },
+  "devDependencies": {
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.5.6"
+  }
+}
