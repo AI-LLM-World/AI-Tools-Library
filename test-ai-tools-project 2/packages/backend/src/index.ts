@@ -3,10 +3,19 @@ import cors from "cors";
 import dotenv from "dotenv";
 import path from "path";
 import fs from "fs";
+import rateLimit from 'express-rate-limit';
+import { v4 as uuidv4 } from 'uuid';
 
 dotenv.config();
 
 const app = express();
+
+// Fail-fast in production if admin key is not configured
+if (process.env.NODE_ENV === 'production' && !process.env.SUBMISSIONS_ADMIN_KEY) {
+  // eslint-disable-next-line no-console
+  console.error('SUBMISSIONS_ADMIN_KEY must be set in production. Aborting startup.');
+  process.exit(1);
+}
 
 // Allow configuring CORS origins via CORS_ORIGINS env (comma-separated).
 // If not provided, fall back to permissive behavior for development.
@@ -31,7 +40,7 @@ if (!submissionsAdminKey) {
 }
 
 function requireAdmin(req: any, res: any, next: any) {
-  if (!submissionsAdminKey) return next();
+  if (!submissionsAdminKey) return res.status(403).json({ error: 'admin endpoints disabled (no admin key configured)' });
   const header = (req.headers['x-admin-api-key'] || req.headers['authorization'] || "") as string;
   if (!header) return res.status(401).json({ error: 'unauthorized' });
   if (header.startsWith('Bearer ')) {
@@ -157,18 +166,26 @@ app.get("/api/hello", (_req, res) => {
   res.json({ message: "Hello from backend" });
 });
 
+// Rate limiter for public submissions: 10 requests per minute per IP
+const submissionsLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // Public submission endpoint (Phase 2 minimal implementation)
 // Accepts a subset of fields and appends to data/submissions.json with status 'pending'.
-app.post("/api/submissions", (req, res) => {
+app.post("/api/submissions", submissionsLimiter, (req, res) => {
   try {
     const body = req.body || {};
-    // Minimal validation
-    if (!body.id || !body.name) {
-      return res.status(400).json({ error: "id and name are required" });
+    // Minimal validation: name required, id is server-generated
+    if (!body.name || typeof body.name !== 'string' || body.name.trim() === '') {
+      return res.status(400).json({ error: "name is required" });
     }
 
     const submission = {
-      id: String(body.id),
+      id: uuidv4(), // server-generated id
       name: String(body.name),
       category: body.category || "",
       short_description: body.short_description || "",
@@ -198,17 +215,44 @@ app.get("/api/admin/submissions", requireAdmin, (_req, res) => {
 
 // Admin: approve a submission by id. This will mark the submission approved and
 // promote the entry into ai_tools.json if not already present.
-app.post("/api/admin/submissions/:id/approve", requireAdmin, (req, res) => {
+app.post("/api/admin/submissions/:id/approve", requireAdmin, async (req, res) => {
+  // Use a file lock on submissions.json to avoid concurrent approval races.
+  // eslint-disable-next-line global-require
+  const lockfile = require('proper-lockfile');
+  let release: any = null;
   try {
     const id = String(req.params.id);
-    const idx = submissionsCache.findIndex((s) => s.id === id);
-    if (idx === -1) return res.status(404).json({ error: "submission not found" });
 
-    const submission = submissionsCache[idx];
-    if (submission.status === "approved") return res.status(400).json({ error: "already approved" });
+    // Acquire lock (with retries)
+    try {
+      release = await lockfile.lock(submissionsPath, { retries: { retries: 5, factor: 2, minTimeout: 50, maxTimeout: 200 } });
+    } catch (err) {
+      console.error('Could not acquire submissions lock', err);
+      return res.status(503).json({ error: 'server busy, try again' });
+    }
 
-    // Promote: ensure no duplicate tool id
-    const exists = allTools.find((t) => t.id === submission.id);
+    // Re-read submissions from disk under lock
+    const rawSubs = fs.readFileSync(submissionsPath, 'utf8');
+    const parsedSubs = (() => { try { return JSON.parse(rawSubs); } catch (_) { return []; } })();
+    const idx = parsedSubs.findIndex((s: any) => String(s.id) === id);
+    if (idx === -1) {
+      return res.status(404).json({ error: 'submission not found' });
+    }
+
+    const submission = parsedSubs[idx];
+    if (submission.status === 'approved') return res.status(400).json({ error: 'already approved' });
+
+    // Promote: read ai_tools.json from disk and promote if not present
+    let toolsOnDisk: any[] = [];
+    try {
+      const rawTools = fs.readFileSync(dataPath, 'utf8');
+      const parsedTools = JSON.parse(rawTools);
+      toolsOnDisk = Array.isArray(parsedTools) ? parsedTools : [];
+    } catch (err) {
+      toolsOnDisk = [];
+    }
+
+    const exists = toolsOnDisk.find((t) => String(t.id) === String(submission.id));
     if (!exists) {
       const tool = {
         id: submission.id,
@@ -219,24 +263,32 @@ app.post("/api/admin/submissions/:id/approve", requireAdmin, (req, res) => {
         tags: submission.tags || [],
         example_use: submission.example_use || "",
       };
-      allTools.push(tool);
-      // persist ai_tools.json atomically
+      toolsOnDisk.push(tool);
       try {
-        writeJsonAtomic(dataPath, allTools.concat().sort((a: any, b: any) => String(a.name).localeCompare(String(b.name))));
+        writeJsonAtomic(dataPath, toolsOnDisk.concat().sort((a: any, b: any) => String(a.name).localeCompare(String(b.name))));
       } catch (err) {
-        console.error("Failed to persist ai_tools.json", err);
-        return res.status(500).json({ error: "failed to persist tools" });
+        console.error('Failed to persist ai_tools.json', err);
+        return res.status(500).json({ error: 'failed to persist tools' });
       }
     }
 
-    submissionsCache[idx] = { ...submission, status: "approved", approvedAt: new Date().toISOString() };
-    writeJsonAtomic(submissionsPath, submissionsCache);
+    // Mark submission approved and write back
+    parsedSubs[idx] = { ...submission, status: 'approved', approvedAt: new Date().toISOString() };
+    writeJsonAtomic(submissionsPath, parsedSubs);
 
-    res.json({ id: submission.id, status: "approved" });
+    // Update in-memory caches (best-effort)
+    loadTools();
+    loadSubmissions();
+
+    res.json({ id: submission.id, status: 'approved' });
   } catch (err) {
     // eslint-disable-next-line no-console
-    console.error("Failed to approve submission", err);
-    res.status(500).json({ error: "failed to approve submission" });
+    console.error('Failed to approve submission', err);
+    res.status(500).json({ error: 'failed to approve submission' });
+  } finally {
+    if (release) {
+      try { await release(); } catch (e) { /* ignore */ }
+    }
   }
 });
 
