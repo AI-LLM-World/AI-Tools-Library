@@ -1,0 +1,12 @@
+- [ ] GSTA-7.1 Product alignment meeting (Owner: Staff Engineer) — 1d
+  - Review proposed schema with Product. Confirm attributes, quotas, billing fields.
+- [ ] GSTA-7.2 Migrations implementation (Owner: Release Engineer) — 2d
+  - Implement up/down migrations using our migration tool and include SQL from schema.sql.
+- [ ] GSTA-7.3 DAL / ORM changes (Owner: Backend Engineer) — 3d
+  - Update models and data access layer. Add hooks for audit log writes.
+- [ ] GSTA-7.4 Backfill scripts & runbook (Owner: Release Engineer) — 1d
+  - Create backfill scripts, document steps, and rehearse on staging.
+- [ ] GSTA-7.5 Tests & CI (Owner: QA Engineer) — 2d
+  - Add unit/integration/migration tests per tests.md.
+- [ ] GSTA-7.6 Canary Rollout & Monitoring (Owner: Release Engineer) — 1d
+  - Deploy schema to canary tenant(s) and monitor for issues.
