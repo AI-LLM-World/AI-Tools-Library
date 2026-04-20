@@ -2,7 +2,7 @@ title: GSTA-8.5 — Route handlers
 assignee: backend-engineer
 priority: high
 estimate: 2d
-status: todo
+status: in_progress
 
 Description
 -----------
@@ -15,3 +15,6 @@ Tasks
 
 Acceptance Criteria
 - Handlers pass integration tests.
+
+Notes
+- Initial resource-level handlers (GET/PATCH/DELETE for /api/resources/:id and GET /api/resources/:id/audit-logs) and DAL helpers were scaffolded and implemented to provide a fast feedback loop. Backend Engineer to continue with Projects, Organizations, Auth endpoints and tests.
