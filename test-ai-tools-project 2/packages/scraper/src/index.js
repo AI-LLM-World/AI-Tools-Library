@@ -63,15 +63,15 @@ async function runOnce(outDir) {
   }
   const final = Array.from(byId.values());
 
-  // validate (may return a filtered/normalized array)
-  const validated = validate(final) || final;
+  // validate
+  validate(final);
 
   // write to outDir/ai_tools.json
   const dest = path.join(outDir, 'ai_tools.json');
-  const content = JSON.stringify(validated, null, 2) + '\n';
+  const content = JSON.stringify(final, null, 2) + '\n';
   const backup = safeReplace.atomicReplace(dest, content);
-  console.log('Wrote', dest, 'records=', validated.length, 'backup=', backup || 'none');
-  return { dest, records: validated.length, backup };
+  console.log('Wrote', dest, 'records=', final.length, 'backup=', backup || 'none');
+  return { dest, records: final.length, backup };
 }
 
 function parseArgs() {

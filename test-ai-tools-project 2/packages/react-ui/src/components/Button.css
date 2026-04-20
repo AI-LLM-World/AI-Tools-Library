@@ -1,9 +1,0 @@
-.gstack-btn {
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
-  border: none;
-  padding: 8px 12px;
-  border-radius: 6px;
-}
-.gstack-btn--primary { background: var(--gstack-color-primary-default, #0ea5a4); color: var(--gstack-color-primary-contrast, #fff); }
-.gstack-btn--secondary { background: transparent; color: var(--gstack-color-primary-default, #0ea5a4); border: 1px solid rgba(0,0,0,0.08); }
-.gstack-btn--ghost { background: transparent; color: inherit; }

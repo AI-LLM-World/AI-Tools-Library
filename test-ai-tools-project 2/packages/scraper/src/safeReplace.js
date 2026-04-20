@@ -1,38 +1,42 @@
 const fs = require('fs');
 const path = require('path');
 
-// Perform an atomic replace of dest with content.
-// If dest exists it is moved to a timestamped backup before replacing.
-// Returns the backup filename (basename) if a backup was created, otherwise null.
-function atomicReplace(dest, content) {
-  const dir = path.dirname(dest);
-  const base = path.basename(dest);
-  const tmp = path.join(dir, base + '.tmp');
+function atomicReplace(destPath, content) {
+  const dir = path.dirname(destPath);
+  const tmp = path.join(dir, `ai_tools.json.tmp.${process.pid}.${Date.now()}`);
+  // Write temp file
+  fs.writeFileSync(tmp, content, 'utf8');
 
-  // write tmp file
-  fs.writeFileSync(tmp, content, { encoding: 'utf8' });
-
-  // best-effort fsync on POSIX (no-op on some Windows builds)
+  // Ensure data is flushed to disk where possible
   try {
     const fd = fs.openSync(tmp, 'r');
     try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
   } catch (err) {
-    // ignore; fsync is best-effort for durability in tests
+    // best-effort, continue
+    console.warn('fsync failed (best-effort):', err && err.message);
   }
 
-  if (fs.existsSync(dest)) {
-    const bakName = `${base}.${Date.now()}.bak`;
-    const bakPath = path.join(dir, bakName);
-    // Move existing file to backup first (Windows-safe)
-    fs.renameSync(dest, bakPath);
-    // Move tmp into place
-    fs.renameSync(tmp, dest);
-    return bakName;
+  let backup = null;
+  if (fs.existsSync(destPath)) {
+    // move existing file to a timestamped backup name
+    backup = `${destPath}.${Date.now()}.bak`;
+    try {
+      fs.renameSync(destPath, backup);
+    } catch (err) {
+      // fallback to copy+unlink if rename fails (Windows cross-device edge)
+      try {
+        fs.copyFileSync(destPath, backup);
+        fs.unlinkSync(destPath);
+      } catch (err2) {
+        console.error('Failed to create backup of existing file:', err2);
+        throw err2;
+      }
+    }
   }
 
-  // No existing file: just rename tmp to dest
-  fs.renameSync(tmp, dest);
-  return null;
+  // rename tmp into place
+  fs.renameSync(tmp, destPath);
+  return backup;
 }
 
 module.exports = { atomicReplace };

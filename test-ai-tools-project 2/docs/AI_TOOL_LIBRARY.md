@@ -40,24 +40,6 @@ Admin submission / review flow (recommended next phase)
   - data/submissions.json: array of submission objects with status: pending|approved|rejected, createdAt, createdBy
   - On approval, the admin backend moves the entry from submissions.json into ai_tools.json (or better: promote into a DB-backed store with migrations).
 
-Current minimal endpoints (implemented)
-- POST /api/submissions
-  - Public submission endpoint (minimal). Body must include `id` and `name`. The server appends the submission to data/submissions.json with status `pending` and createdAt timestamp.
-
-- GET /api/admin/submissions
-  - Admin listing of submissions. In this minimal implementation there is no auth; treat it as an internal-only endpoint.
-
-- POST /api/admin/submissions/:id/approve
-  - Admin approve endpoint. Marks the submission `approved`, sets `approvedAt`, and promotes the submission into data/ai_tools.json if a tool with the same id does not already exist. Writes files atomically.
-
-Notes
-- These endpoints are intentionally minimal for Phase 2 development. Before shipping, add authentication/authorization, audit logs, rate limiting, and migrate to a DB-backed model.
-
-Admin auth (stopgap)
-- A simple admin API key is supported via the env var `SUBMISSIONS_ADMIN_KEY`.
-  - When set, admin endpoints require either header `x-admin-api-key: <key>` or `Authorization: Bearer <key>`.
-  - If `SUBMISSIONS_ADMIN_KEY` is not set the admin endpoints are unprotected (development only). Do not leave this unset in production.
-
 Security and Production Notes
 - This implementation reads a JSON file from disk on every request and is intended for development and demos only. For production, migrate to a database with proper indexing and pagination.
 - When implementing programmatic submissions, require authentication (OAuth2 / API keys) and rate limiting. Keep an audit log for approvals and rejections.

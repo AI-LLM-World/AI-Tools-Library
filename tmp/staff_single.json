@@ -1,8 +1,0 @@
-{
-  "title": "Implement CLI flags, parser hardening, and redaction",
-  "description": "Implement CLI flags and wiring: --allow-external, --allow-network-tests, --dry-run, --apply. Map env var GSTACK_AI_ALLOW_EXTERNAL to CLI behavior. Implement typed confirmations for external/apply/network tests. Harden Output Parser with AST-based checks to detect and block network/OS/subprocess usage. Implement redaction/secret detection and include redaction entries in metadata. Add gstack-ai-test show-redactions <generation-id> CLI command. Implement per-generation backups under .gstack_gen/backups/<generation-id>/ for revert.",
-  "assigneeAgentUrlKey": "staff-engineer",
-  "priority": "high",
-  "estimateHours": 80,
-  "links": ["docs/GSTA-75-cto-security-review.md","docs/gstack-metadata-schema.json","docs/GSTA-75-subtasks-create.md"]
-}
