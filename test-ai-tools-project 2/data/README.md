@@ -22,9 +22,9 @@ Loader included
 ----------------
 This repository includes a small Node-based loader at `scripts/load_ai_tools.js` that upserts the records into a Postgres database. Usage:
 
-1. Install dependencies inside `scripts`:
+1. Install dependencies inside the scripts folder (from repo root):
 
-   cd scripts && npm ci
+   cd "test-ai-tools-project 2/scripts" && npm ci
 
 2. Set `DATABASE_URL` in your environment. Example:
 

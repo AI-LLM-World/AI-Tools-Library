@@ -13,10 +13,25 @@ function die(msg, code = 2) {
 const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');
 const createTable = args.includes('--create-table');
-const root = path.join(__dirname, '..');
-const dataPath = path.join(root, 'data', 'ai_tools.json');
+const includeTests = args.includes('--include-tests');
+// Locate data/ai_tools.json by walking upward from the script directory. This handles nested repo layouts.
+let dataPath = null;
+let cur = __dirname;
+for (let i = 0; i < 5; i++) {
+  const candidate = path.join(cur, '..'.repeat(i>0?i:0), 'data', 'ai_tools.json');
+  // normalize
+  const real = path.resolve(path.join(__dirname, '..', '..', '..', '..', '..'), candidate);
+  if (fs.existsSync(candidate)) { dataPath = candidate; break; }
+  if (fs.existsSync(real)) { dataPath = real; break; }
+}
+// Fallbacks: try repo-root relative paths
+if (!dataPath) {
+  const candidate = path.resolve(__dirname, '..', '..', 'data', 'ai_tools.json');
+  if (fs.existsSync(candidate)) dataPath = candidate;
+}
+if (!dataPath) dataPath = path.join(process.cwd(), 'data', 'ai_tools.json');
 
-if (!fs.existsSync(dataPath)) die(`Data file not found: ${dataPath}`);
+if (!fs.existsSync(dataPath)) die(`Data file not found (tried multiple locations). Expected data/ai_tools.json near repo root. Last attempt: ${dataPath}`);
 
 let items;
 try {
@@ -42,10 +57,12 @@ if (missing.length) {
 // Normalize records
 const normalized = items.map((it) => {
   const tags = Array.isArray(it.tags) ? Array.from(new Set(it.tags.map(t => String(t).toLowerCase().trim()))) : [];
+  // Default status: if record sets status use it; otherwise treat category 'Test' as test record
+  const inferredStatus = it.status || (String(it.category || '').toLowerCase() === 'test' ? 'test' : 'active');
   const metadata = {
     vendor: it.vendor || null,
     license: it.license || null,
-    status: it.status || 'active',
+    status: inferredStatus,
     last_updated: it.last_updated || null
   };
   return {
@@ -110,7 +127,7 @@ const pool = new Pool({ connectionString });
     let commit = null;
     try { commit = execSync('git rev-parse --short HEAD', { cwd: root }).toString().trim(); } catch (e) { /* ignore */ }
 
-    let inserted = 0, updated = 0;
+    let inserted = 0, updated = 0, skipped = 0;
 
     const upsertSql = `
 INSERT INTO ai_tools (slug, name, category, short_description, website, tags, example_use, metadata, provenance, created_at, updated_at)
@@ -128,7 +145,13 @@ ON CONFLICT (slug) DO UPDATE SET
 RETURNING (xmax = 0) as inserted;
 `;
 
+    // ON CONFLICT upsert. We RETURN (xmax = 0) as inserted to heuristically detect insert vs update.
     for (const rec of normalized) {
+      // Skip test records by default unless explicitly included
+      if (rec.metadata && String(rec.metadata.status).toLowerCase() === 'test' && !includeTests) {
+        skipped++;
+        continue;
+      }
       const provenance = {
         source_file: path.relative(process.cwd(), dataPath),
         import_timestamp: new Date().toISOString(),

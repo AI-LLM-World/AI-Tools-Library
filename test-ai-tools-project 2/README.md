@@ -12,5 +12,11 @@ Getting started (local)
 
 Notes
 -----
+Auth
+----
+Set `JWT_SECRET` env var to enable JWT validation. If not set, the scaffold accepts tokens of the form `Bearer user:<userId>:org:<orgId>` for local testing.
+
+Notes
+-----
 - Auth helper is a placeholder. Replace with JWT validation in production.
 - Prisma datasource uses SQLite for local testing. Switch to Postgres in production and create proper migrations.

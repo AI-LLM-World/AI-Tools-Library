@@ -219,6 +219,137 @@ app.post("/api/submissions", submissionsLimiter, (req, res) => {
   }
 });
 
+// ----- Programmatic submissions (Basic Auth) -----
+// Expected env: SUBMISSIONS_CLIENTS = JSON string mapping client_id -> client_secret
+const submissionsClientsRaw = process.env.SUBMISSIONS_CLIENTS || process.env.SUBMISSION_CLIENTS || "";
+let submissionsClients: Record<string, string> = {};
+if (submissionsClientsRaw) {
+  try {
+    submissionsClients = JSON.parse(submissionsClientsRaw);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn('Failed to parse SUBMISSIONS_CLIENTS env, ignoring', err);
+    submissionsClients = {};
+  }
+}
+
+function requireClientAuth(req: any, res: any, next: any) {
+  const header = (req.headers['authorization'] || '') as string;
+  if (!header || !header.startsWith('Basic ')) {
+    return res.status(401).json({ error: 'invalid_auth' });
+  }
+  const b64 = header.slice('Basic '.length).trim();
+  let decoded = '';
+  try {
+    decoded = Buffer.from(b64, 'base64').toString('utf8');
+  } catch (err) {
+    return res.status(401).json({ error: 'invalid_auth' });
+  }
+  const parts = decoded.split(':');
+  if (parts.length < 2) return res.status(401).json({ error: 'invalid_auth' });
+  const clientId = parts.shift() || '';
+  const clientSecret = parts.join(':');
+  const expected = submissionsClients[clientId];
+  if (!expected || expected !== clientSecret) {
+    return res.status(401).json({ error: 'invalid_credentials' });
+  }
+  // attach client id for downstream handlers
+  req.clientId = clientId;
+  return next();
+}
+
+function isValidHttpsUrl(u: any) {
+  if (!u || typeof u !== 'string') return false;
+  try {
+    const p = new URL(u);
+    return p.protocol === 'https:';
+  } catch (e) {
+    return false;
+  }
+}
+
+function slugifyId(raw: string) {
+  return String(raw)
+    .toLowerCase()
+    .replace(/[^a-z0-9-_]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64) || uuidv4();
+}
+
+// POST /api/tools/submit
+// Programmatic clients authenticate with Basic Auth: base64(client_id:client_secret)
+app.post('/api/tools/submit', submissionsLimiter, requireClientAuth, (req, res) => {
+  try {
+    const clientId = req.clientId || 'unknown';
+    const body = req.body || {};
+
+    // Idempotency: if client repeats the same X-Idempotency-Key return original response
+    const idemKey = String(req.headers['x-idempotency-key'] || '').trim();
+    if (idemKey) {
+      const existing = submissionsCache.find((s: any) => s.metadata && s.metadata.idempotencyKey === idemKey && s.submitted_by === clientId);
+      if (existing) {
+        return res.status(200).json({ id: existing.id, status: existing.status });
+      }
+    }
+
+    // Validation
+    if (!body.name || typeof body.name !== 'string' || body.name.trim() === '') {
+      return res.status(400).json({ error: 'name is required' });
+    }
+    if (body.website && !isValidHttpsUrl(body.website)) {
+      return res.status(400).json({ error: 'website must be a valid https URL' });
+    }
+    const tags = Array.isArray(body.tags) ? body.tags.filter((t: any) => typeof t === 'string').slice(0, 20) : [];
+
+    // id handling: client may propose an id (slug); otherwise server generates uuid
+    let id = '';
+    if (body.id && typeof body.id === 'string' && body.id.trim() !== '') {
+      id = slugifyId(body.id);
+      // conflict if id exists already in submissions or tools
+      const existsSub = submissionsCache.find((s: any) => String(s.id) === id);
+      const existsTool = allTools.find((t: any) => String(t.id) === id);
+      if (existsSub || existsTool) return res.status(409).json({ error: 'id_conflict' });
+    } else {
+      id = uuidv4();
+    }
+
+    const submission = {
+      id,
+      name: String(body.name),
+      category: body.category || '',
+      short_description: body.short_description || '',
+      website: body.website || '',
+      tags,
+      example_use: body.example_use || '',
+      contact_email: body.contact_email || '',
+      status: 'pending',
+      submitted_at: new Date().toISOString(),
+      submitted_by: clientId,
+      metadata: {
+        idempotencyKey: idemKey || null,
+        user_agent: String(req.headers['user-agent'] || ''),
+        ip: req.ip || req.connection?.remoteAddress || null,
+      },
+    };
+
+    submissionsCache.push(submission);
+    // persist
+    try {
+      writeJsonAtomic(submissionsPath, submissionsCache);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('Failed to persist submission', err);
+      return res.status(500).json({ error: 'failed_to_persist' });
+    }
+
+    res.status(201).location(`/api/admin/submissions/${submission.id}`).json({ id: submission.id, status: submission.status });
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('Failed to accept programmatic submission', err);
+    res.status(500).json({ error: 'failed' });
+  }
+});
+
 // Admin: list submissions (no auth in this minimal implementation)
 app.get("/api/admin/submissions", requireAdmin, (_req, res) => {
   res.json({ total: submissionsCache.length, results: submissionsCache });
