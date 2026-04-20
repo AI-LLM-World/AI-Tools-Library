@@ -27,6 +27,7 @@ from typing import Dict, List, Optional, Tuple
 
 from .core import generate_tests, GenerationResult
 from .providers import LocalMockProvider
+from .redact import redact_text
 
 
 METADATA_FILE = ".gstack_gen/metadata.json"
@@ -47,90 +48,12 @@ def _sanitize_test_name(name: str, index: Optional[int] = None) -> str:
 
 
 def _validate_code(code: str) -> Tuple[bool, Optional[str]]:
-    # Syntax validation
-    try:
-        tree = ast.parse(code)
-    except SyntaxError as e:
-        return False, f"syntax error: {e}"
-    # Conservative static checks for unsafe imports/calls.
-    # We build a small alias map from import statements so callers like
-    # "from os import system" or "import os as o; o.system(...)" are caught.
-    unsafe_imports = {"subprocess", "socket", "requests", "importlib", "builtins"}
-    # deny these call names even when used as plain names
-    unsafe_calls = {"open", "eval", "exec", "__import__", "compile", "getattr", "setattr", "delattr", "globals", "locals", "vars", "dir"}
+    # Delegate to the parser module validation so both CLI and parser share
+    # the same conservative AST-based rules. This keeps the trust boundary
+    # behavior in a single place and avoids duplicated logic drift.
+    from .parser import _validate_code as _parser_validate
 
-    alias_map: Dict[str, str] = {}
-
-    # First pass: inspect imports and populate alias_map and catch simple unsafe imports
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for n in getattr(node, "names", []):
-                # n.name is the real module (possibly dotted); n.asname is alias
-                top = n.name.split(".")[0]
-                if top in unsafe_imports:
-                    return False, f"blocked import: {n.name}"
-                asname = n.asname or n.name.split(".")[0]
-                alias_map[asname] = n.name
-
-        elif isinstance(node, ast.ImportFrom):
-            module = node.module or ""
-            top = module.split(".")[0] if module else ""
-            # block imports from clearly unsafe modules
-            if top in unsafe_imports:
-                return False, f"blocked import: {module}"
-            # block dangerous from-imports from 'os' (e.g. from os import system)
-            for n in getattr(node, "names", []):
-                name = n.name
-                asname = n.asname or name
-                full = f"{module}.{name}" if module else name
-                # explicitly block importing dangerous os functions
-                if module == "os" and name in ("system", "popen", "popen2", "popen3", "popen4"):
-                    return False, f"blocked import: {full}"
-                alias_map[asname] = full
-
-    # Second pass: inspect calls and attribute access
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call):
-            func = node.func
-            # Name: direct call like open(...) or an imported name
-            if isinstance(func, ast.Name):
-                if func.id in unsafe_calls:
-                    return False, f"blocked call: {func.id}"
-                mapped = alias_map.get(func.id)
-                if mapped:
-                    # mapped may be like 'os.system' or 'subprocess'
-                    if mapped.split(".")[0] in unsafe_imports or mapped.startswith("os."):
-                        return False, f"blocked call (via import): {mapped}"
-
-            # Attribute: e.g. os.system, o.system where o was aliased
-            elif isinstance(func, ast.Attribute):
-                attr_chain: List[str] = []
-                cur = func
-                while isinstance(cur, ast.Attribute):
-                    attr_chain.append(cur.attr)
-                    cur = cur.value
-                if isinstance(cur, ast.Name):
-                    attr_chain.append(cur.id)
-                full = ".".join(reversed(attr_chain))
-
-                # try to resolve top-level alias (the left-most name)
-                parts = full.split(".")
-                if parts:
-                    top = parts[0]
-                    real_top = alias_map.get(top, top)
-                    # if alias_map maps to a dotted name, stitch it back
-                    if real_top != top:
-                        rest = parts[1:]
-                        full_real = real_top + ("." + ".".join(rest) if rest else "")
-                    else:
-                        full_real = full
-                else:
-                    full_real = full
-
-                if full_real.startswith("os.") or full_real.startswith("subprocess") or full_real.split(".")[0] in unsafe_imports:
-                    return False, f"blocked attribute call: {full_real}"
-
-    return True, None
+    return _parser_validate(code)
 
 
 def _load_metadata(metadata_path: Path) -> List[Dict]:
@@ -254,6 +177,16 @@ def apply_generation(result: GenerationResult, repo_path: str = ".", provider_na
 
         tests_meta.append({"file": str(Path("tests") / gen_id / fname), "status": status})
 
+    # collect redactions from individual tests (best-effort)
+    all_redactions: List[Dict[str, str]] = []
+    for t in result.tests:
+        try:
+            _, reds = redact_text(t.code)
+            all_redactions.extend(reds)
+        except Exception:
+            # don't fail apply for redaction errors
+            pass
+
     meta_entry = {
         "generation_id": gen_id,
         "timestamp": ts,
@@ -263,7 +196,7 @@ def apply_generation(result: GenerationResult, repo_path: str = ".", provider_na
         "max_tests": result.metadata.get("max_tests", None),
         "strategy": result.metadata.get("strategy", None),
         "tests": tests_meta,
-        "redactions": [],
+        "redactions": all_redactions,
         "tokens_used": result.metadata.get("tokens_used", 0),
     }
 
@@ -320,10 +253,9 @@ def apply_generation(result: GenerationResult, repo_path: str = ".", provider_na
         raise RuntimeError("could not acquire metadata lock")
 
     try:
-        entries = _load_metadata(metadata_path)
-        entries.append(meta_entry)
-        _write_metadata_atomic(metadata_path, entries)
-        # move temp directory into place atomically
+        # Move temp directory into place first so files exist before metadata
+        # references them. If the move fails we abort and clean up the temp
+        # directory to avoid leaving partial state.
         final_out = base / "tests" / gen_id
         try:
             os.replace(str(tmp_out_dir), str(final_out))
@@ -331,8 +263,37 @@ def apply_generation(result: GenerationResult, repo_path: str = ".", provider_na
             try:
                 shutil.move(str(tmp_out_dir), str(final_out))
             except Exception:
-                # best-effort: leave temp dir for operator to inspect
+                try:
+                    if tmp_out_dir.exists():
+                        shutil.rmtree(tmp_out_dir)
+                except Exception:
+                    pass
+                raise
+
+        # best-effort: snapshot existing metadata into a per-generation backup
+        try:
+            backups_dir = base / "backups" / gen_id
+            backups_dir.mkdir(parents=True, exist_ok=True)
+            if metadata_path.exists():
+                shutil.copy2(str(metadata_path), str(backups_dir / f"metadata.json.bak.{int(time.time())}"))
+        except Exception:
+            # don't fail the apply for backup failures
+            pass
+
+        # Now update metadata to include the new generation
+        try:
+            entries = _load_metadata(metadata_path)
+            entries.append(meta_entry)
+            _write_metadata_atomic(metadata_path, entries)
+        except Exception:
+            # metadata write failed; attempt to remove the moved generation to
+            # avoid orphaning files that won't be discoverable via metadata.
+            try:
+                if final_out.exists():
+                    shutil.rmtree(final_out)
+            except Exception:
                 pass
+            raise
     finally:
         try:
             owner = lock_dir / ".owner"
@@ -481,7 +442,8 @@ def main(argv: Optional[List[str]] = None):
     args = parser.parse_args(argv)
     try:
         if args.cmd == "generate":
-            allow_ext = args.allow_external or os.environ.get("GSTACK_AI_ALLOW_EXTERNAL") == "true"
+            allow_ext_env = os.environ.get("GSTACK_AI_ALLOW_EXTERNAL", "").lower()
+            allow_ext = args.allow_external or allow_ext_env in ("1", "true", "yes")
             res, preview = preview_generation(repo_path=args.repo, max_tests=args.max, strategy=args.strategy, provider_name=args.provider, allow_external=allow_ext)
             print(preview)
             if args.apply:

@@ -27,7 +27,8 @@ def test_blocked_import_from_and_attribute_open():
     text = "from subprocess import Popen\ndef t():\n    Popen(['echo','x'])\n"
     tests, errors, meta = parse_model_response(text)
     assert not tests
-    assert any("blocked import from" in e or "blocked attribute call" in e for e in errors)
+    # parser reports blocked imports as 'blocked import: <module>'
+    assert any("blocked import" in e or "blocked attribute call" in e for e in errors)
 
 
 def test_blocked_path_open_attribute():
