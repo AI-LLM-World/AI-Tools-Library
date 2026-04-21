@@ -1,0 +1,11 @@
+{
+  "name": "@gstack/tokens",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/tokens.cjs.js",
+  "module": "dist/tokens.esm.js",
+  "files": ["dist"],
+  "scripts": {
+    "build": "node ../../scripts/build-tokens.js"
+  }
+}

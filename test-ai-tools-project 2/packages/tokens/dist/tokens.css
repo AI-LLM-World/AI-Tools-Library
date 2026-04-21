@@ -1,0 +1,15 @@
+:root {
+  --gstack-color-background-base: #ffffff;
+  --gstack-color-background-muted: #f7f7f8;
+  --gstack-color-text-primary: #0f1722;
+  --gstack-color-text-muted: #6b7280;
+  --gstack-color-primary-default: #0ea5a4;
+  --gstack-color-primary-contrast: #ffffff;
+  --gstack-spacing-1: 4px;
+  --gstack-spacing-2: 8px;
+  --gstack-spacing-3: 12px;
+  --gstack-spacing-4: 16px;
+  --gstack-radius-sm: 4px;
+  --gstack-radius-md: 8px;
+  --gstack-radius-lg: 12px;
+}
