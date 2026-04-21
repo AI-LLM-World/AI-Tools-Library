@@ -7,9 +7,26 @@ const mode = process.argv[3] || 'nolock';
 const id = process.argv[4] || String(process.pid);
 
 function writeJsonAtomic(filePath, data) {
-  const tmp = filePath + '.tmp';
+  // Use a unique temporary filename to avoid collisions when multiple
+  // processes attempt to write concurrently. Best-effort fsync for
+  // durability.
+  const unique = `.tmp.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2,8)}`;
+  const tmp = filePath + unique;
   fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8');
+  try {
+    const fd = fs.openSync(tmp, 'r');
+    try { fs.fsyncSync(fd); } catch (e) { /* best-effort */ } finally { fs.closeSync(fd); }
+  } catch (e) {
+    // ignore
+  }
   fs.renameSync(tmp, filePath);
+  try {
+    const dir = path.dirname(filePath);
+    const dfd = fs.openSync(dir, 'r');
+    try { fs.fsyncSync(dfd); } catch (e) { /* best-effort */ } finally { fs.closeSync(dfd); }
+  } catch (e) {
+    // ignore
+  }
 }
 
 function acquireDirLock(lockPath, retries = 1000) {

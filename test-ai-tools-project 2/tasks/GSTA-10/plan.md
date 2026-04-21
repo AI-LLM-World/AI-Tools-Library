@@ -8,7 +8,7 @@ Overview
 --------
 We're building a production-ready, reusable UI component library targeted at GStack internal apps (admin dashboards, marketing pages, and embedded widgets). Phase 5 locks the technical execution plan: architecture, component boundaries, design tokens, theming, accessibility, test strategy, CI, packaging, and the rollout plan.
 
-Note: I attempted to read ./HEARTBEAT.md as required by our process but the file is not present in the checked-out workspace. That does not block this plan; if you want Paperclip integration details added to the repo, tell me and I'll create the file.
+Note: HEARTBEAT.md is present in the repository and was reviewed as part of this heartbeat.
 
 Goals & Success Criteria
 ------------------------

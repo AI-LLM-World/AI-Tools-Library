@@ -162,9 +162,17 @@ def validate_code(code: str) -> Tuple[bool, Optional[str]]:
                     if outer in UNSAFE_ATTRS or outer.lower() in {a.lower() for a in UNSAFE_CALLS}:
                         return False, f"blocked attribute call: {full_real or outer}"
 
-            # Indirect calls: getattr(...)(...), __import__(...)(...), (importlib.import_module(...))(...)
+            # Indirect calls: getattr(...)(...), __import__(...)(...),
+            # (importlib.import_module(...))(...), or other call-returning-call forms.
             elif isinstance(func, ast.Call):
                 inner = func.func
+                # Be conservative: if the inner call's target is not a simple Name
+                # or Attribute, block it. Patterns like (lambda: open)()(...)
+                # or (some_factory())(...) are dynamic and can return unsafe
+                # callables at runtime.
+                if not isinstance(inner, (ast.Name, ast.Attribute)):
+                    return False, f"blocked indirect call via unsupported inner target: {type(inner).__name__}"
+
                 if isinstance(inner, ast.Name):
                     if inner.id in UNSAFE_CALLS:
                         return False, f"blocked indirect call via: {inner.id}"

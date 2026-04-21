@@ -3,6 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import path from "path";
 import fs from "fs";
+import { randomUUID } from 'crypto';
 
 dotenv.config();
 
@@ -12,6 +13,13 @@ const app = express();
 if (process.env.NODE_ENV === 'production' && !process.env.SUBMISSIONS_ADMIN_KEY) {
   // eslint-disable-next-line no-console
   console.error('SUBMISSIONS_ADMIN_KEY must be set in production. Aborting startup.');
+  process.exit(1);
+}
+
+// Require DB usage in production for submission workflows — file-backed mode is unsafe
+if (process.env.NODE_ENV === 'production' && process.env.USE_DB !== 'true') {
+  // eslint-disable-next-line no-console
+  console.error('USE_DB must be true in production. Configure DATABASE_URL and set USE_DB=true');
   process.exit(1);
 }
 
@@ -29,6 +37,50 @@ if (corsOrigins.length > 0) {
 // sufficient for submissions while preventing accidental memory OOMs.
 app.use(express.json({ limit: '64kb' }));
 
+// Simple in-memory rate limiter for submissions (best-effort). Use a proper
+// distributed rate limiter (Redis, etc.) for production scale.
+const submissionRateMap = new Map<string, { count: number; resetAt: number }>();
+const SUBMISSION_LIMIT = Number(process.env.SUBMISSION_RATE_LIMIT || 20);
+const SUBMISSION_WINDOW_MS = Number(process.env.SUBMISSION_WINDOW_MS || 10 * 60 * 1000);
+// If you deploy behind a proxy, set TRUST_PROXY=true in the env so the
+// application will rely on Express' req.ip (after app.set('trust proxy', true)).
+const trustProxy = (process.env.TRUST_PROXY || '').toLowerCase() === 'true';
+if (trustProxy) {
+  // Enable Express' built-in trusted-proxy handling when explicitly configured.
+  app.set('trust proxy', true);
+}
+
+// Extract client IP in a conservative, configurable way. Do NOT trust
+// X-Forwarded-For unless TRUST_PROXY=true.
+function getClientIp(req: any): string {
+  if (trustProxy) return req.ip || 'unknown';
+  const header = req.headers['x-forwarded-for'];
+  if (typeof header === 'string' && header.length > 0) return header.split(',')[0].trim();
+  return (req.ip || req.connection?.remoteAddress || 'unknown') as string;
+}
+
+function checkRateLimit(ip: string) {
+  const now = Date.now();
+  const rec = submissionRateMap.get(ip) || { count: 0, resetAt: now + SUBMISSION_WINDOW_MS };
+  if (rec.resetAt <= now) {
+    rec.count = 0;
+    rec.resetAt = now + SUBMISSION_WINDOW_MS;
+  }
+  rec.count += 1;
+  submissionRateMap.set(ip, rec);
+  if (rec.count > SUBMISSION_LIMIT) return { allowed: false, retryAfter: Math.ceil((rec.resetAt - now) / 1000) };
+  return { allowed: true };
+}
+
+// Periodic cleanup to avoid unbounded growth of the rate-map in long-lived
+// processes. Prune entries that passed their reset window.
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, rec] of submissionRateMap) {
+    if (rec.resetAt <= now) submissionRateMap.delete(key);
+  }
+}, Math.max(60 * 1000, Math.floor(SUBMISSION_WINDOW_MS / 10)));
+
 // Optional DB layer if USE_DB=true
 const useDb = process.env.USE_DB === 'true';
 let db: any = null;
@@ -36,7 +88,14 @@ if (useDb) {
   try {
     // require at runtime to avoid PG dependency when not used
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    db = require('./db').default;
+    // Prefer local package db if present (packaged build), fallback to repo-level shared implementation
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      db = require('./db').default;
+    } catch (e) {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      db = require('../../../../packages/backend/src/db').default;
+    }
     // eslint-disable-next-line no-console
     console.log('USE_DB=true: using Postgres-backed tools API');
   } catch (err) {
@@ -172,24 +231,39 @@ app.post('/api/submissions', async (req, res) => {
   if (!useDb || !db) return res.status(501).json({ error: 'submissions not available in file-backed mode' });
   try {
     const body = req.body || {};
-    // Basic validation; Staff Engineer should improve schema validation
+    // Basic validation
     if (!body.name || typeof body.name !== 'string') return res.status(400).json({ error: 'name is required' });
+
+    // rate limit by IP (best-effort). Use a conservative IP extractor.
+    const ip = String(getClientIp(req));
+    const rl = checkRateLimit(ip);
+    if (!rl.allowed) {
+      res.setHeader('Retry-After', String(rl.retryAfter));
+      return res.status(429).json({ error: 'rate_limited', retryAfter: rl.retryAfter });
+    }
+
+    const id = body.id ? String(body.id).trim() : (typeof randomUUID === 'function' ? randomUUID() : `sub_${Math.random().toString(36).slice(2,9)}`);
+    if (body.id && !/^[a-z0-9\-_]{1,80}$/i.test(id)) return res.status(400).json({ error: 'invalid id format' });
+
     const sub = {
-      id: body.id || `sub_${Math.random().toString(36).slice(2,9)}`,
-      name: body.name,
+      id,
+      name: String(body.name).slice(0, 400),
       category: body.category || null,
       short_description: body.short_description || null,
       website: body.website || null,
-      tags: (body.tags || []).map((t: any) => String(t).toLowerCase()),
+      tags: (body.tags || []).map((t: any) => String(t).toLowerCase()).slice(0, 20),
       example_use: body.example_use || null,
       created_by: body.created_by || null,
     };
     const created = await db.insertSubmission(sub);
-    res.status(201).json(created);
+    if (created && (created as any).error === 'conflict') {
+      return res.status(409).json({ error: 'id conflict', id: (created as any).id });
+    }
+    return res.status(201).json(created);
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error(err);
-    res.status(500).json({ error: 'failed to create submission' });
+    return res.status(500).json({ error: 'failed to create submission' });
   }
 });
 
@@ -216,10 +290,12 @@ app.post('/api/admin/submissions/:id/approve', async (req, res) => {
     const notes = req.body && req.body.notes ? String(req.body.notes) : null;
     const result = await db.promoteSubmission(id, actor, notes);
     // The DB layer returns { promoted: true } on success and
-    // { promoted: false, reason: 'not pending' } when the submission is
-    // already processed. Map the latter to a 409 Conflict so callers can
-    // detect races and refresh the row.
+    // { promoted: false, reason: 'not_pending' } or { promoted: false, reason: 'not_found' }
+    // for common non-success cases. Map 'not_found' to 404 and 'not_pending'
+    // to 409 so callers can handle these situations appropriately.
     if (result && result.promoted === false) {
+      if (result.reason === 'not_found') return res.status(404).json({ error: 'submission not found' });
+      if (result.reason === 'not_pending') return res.status(409).json({ error: 'submission not pending' });
       return res.status(409).json({ error: 'submission not pending', reason: result.reason || null });
     }
     return res.json(result);
@@ -248,8 +324,9 @@ app.get('/api/admin/submissions', async (req, res) => {
     const page = Math.max(1, parseInt(String(req.query.page || '1'), 10));
     const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit || '20'), 10)));
     const status = String(req.query.status || '');
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const dbimpl = require('../../../../packages/backend/src/db');
+    // Use the preloaded `db` impl when available to avoid duplicating
+    // module loading logic and to respect the runtime `useDb` decision.
+    const dbimpl = db || require('../../../../packages/backend/src/db').default;
     const result = await dbimpl.listSubmissions({ status, page, limit });
     res.json(result);
   } catch (err) {
