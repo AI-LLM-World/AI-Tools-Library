@@ -25,9 +25,9 @@ async function heartbeat() {
 
 const interval = setInterval(heartbeat, 10000);
 
-process.on("SIGINT", async () => {
+async function shutdownWorker(signal: string) {
   // eslint-disable-next-line no-console
-  console.log("Worker shutting down");
+  console.log(`Worker shutting down (${signal})`);
   clearInterval(interval);
   try {
     await redis.quit();
@@ -37,7 +37,10 @@ process.on("SIGINT", async () => {
   } finally {
     process.exit(0);
   }
-});
+}
+
+process.on("SIGINT", async () => shutdownWorker('SIGINT'));
+process.on("SIGTERM", async () => shutdownWorker('SIGTERM'));
 
 process.on("unhandledRejection", (reason) => {
   // eslint-disable-next-line no-console

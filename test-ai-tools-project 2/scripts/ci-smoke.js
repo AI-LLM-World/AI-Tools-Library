@@ -31,8 +31,8 @@ async function main() {
       process.exit(3);
     }
 
-    if (!Array.isArray(r.data.results)) {
-      console.error("/api/tools did not return results array", r.data);
+    if (!Array.isArray(r.data.results) || r.data.results.length === 0) {
+      console.error("/api/tools did not return a non-empty results array", r.data);
       process.exit(4);
     }
 
@@ -44,11 +44,21 @@ async function main() {
 
   // Admin endpoints may require auth; we treat 2xx/4xx (not 5xx) as non-fatal but log result.
   try {
-    const r2 = await axios.get(`${baseUrl}/api/admin/submissions`, { timeout: 5000 });
-    console.log(`/api/admin/submissions returned status ${r2.status}`);
-    if (r2.status >= 500) {
-      console.error("Admin endpoint returned server error");
-      process.exit(6);
+    // The admin submissions endpoint lives at /api/tools/submissions. We
+    // treat 2xx and 4xx as non-fatal (may require auth) but treat 5xx as a
+    // server error that should fail the smoke test.
+    const r2 = await axios.get(`${baseUrl}/api/tools/submissions`, { timeout: 5000 }).catch((e) => e);
+    if (r2 && r2.status) {
+      console.log(`/api/tools/submissions returned status ${r2.status}`);
+      if (r2.status >= 500) {
+        console.error("Admin endpoint returned server error");
+        process.exit(6);
+      }
+    } else if (r2 && r2.response && r2.response.status >= 500) {
+      console.error("Admin endpoint returned server error", r2.response.status);
+      process.exit(7);
+    } else {
+      console.log("Admin endpoint check did not succeed but returned no server error; continuing.");
     }
   } catch (err) {
     if (err && err.response && err.response.status >= 500) {

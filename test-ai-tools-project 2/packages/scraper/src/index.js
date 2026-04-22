@@ -14,7 +14,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const safeReplace = require('./safeReplace');
+const safeReplace = require('../../common/fsAtomic');
 const validate = require('./validate');
 
 async function runOnce(outDir) {
@@ -29,11 +29,26 @@ async function runOnce(outDir) {
     for (const f of files) {
       try {
         const mod = require(path.join(scrapersDir, f));
-        if (typeof mod.run === 'function') {
-          scrapers.push(mod.run);
+
+        // Be permissive about accepted module shapes so minor differences in
+        // scraper implementations don't silently cause the scraper to be
+        // ignored. Accept:
+        // - { run: fn }
+        // - { scrape: fn }
+        // - module.exports = fn
+        // - module.exports.default = fn
+        const candidate =
+          (mod && typeof mod.run === 'function' && mod.run) ||
+          (mod && typeof mod.scrape === 'function' && mod.scrape) ||
+          (typeof mod === 'function' && mod) ||
+          (mod && typeof mod.default === 'function' && mod.default) ||
+          null;
+
+        if (candidate) {
+          scrapers.push(candidate);
         } else {
           // better logging when a scraper module does not match the expected API
-          console.warn('Scraper module does not export run():', f);
+          console.warn('Scraper module does not export run()/scrape() or a default function:', f);
         }
       } catch (err) {
         console.error('Failed to load scraper', f, err);
@@ -75,7 +90,9 @@ async function runOnce(outDir) {
   // write to outDir/ai_tools.json
   const dest = path.join(outDir, 'ai_tools.json');
   const content = JSON.stringify(finalValidated, null, 2) + '\n';
-  const backup = safeReplace.atomicReplace(dest, content);
+  // Use the shared atomic replace helper which performs a best-effort
+  // cross-process lock to avoid concurrent writers stomping each other.
+  const backup = await safeReplace.atomicReplace(dest, content);
   console.log('Wrote', dest, 'records=', finalValidated.length, 'backup=', backup || 'none');
   return { dest, records: finalValidated.length, backup };
 }
@@ -113,20 +130,34 @@ async function main() {
     process.exit(2);
   }
 
-  try {
-    await runOnce(opts.outDir);
-    if (!opts.once) {
-      // if not once, run periodically every hour (simple setInterval)
-      console.log('Entering periodic mode: running every hour. Use --once to exit after a single run.');
-      setInterval(async () => {
-        try { await runOnce(opts.outDir); } catch (e) { console.error('Periodic run failed', e); }
-      }, 1000 * 60 * 60);
-    } else {
+  // If --once was provided we run a single, fatal pass (exit non-zero on
+  // failure). Otherwise enter periodic mode and keep the process alive even
+  // if the first run fails (helps in container orchestration / transient
+  // network issues).
+  if (opts.once) {
+    try {
+      await runOnce(opts.outDir);
       process.exit(0);
+    } catch (err) {
+      console.error('Scraper run failed', err);
+      process.exit(1);
     }
-  } catch (err) {
-    console.error('Scraper run failed', err);
-    process.exit(1);
+  } else {
+    console.log('Entering periodic mode: running every hour. Use --once to run a single pass.');
+
+    // Run an initial pass but do not treat failure as fatal when in
+    // periodic mode — keep running and attempt subsequent runs.
+    (async () => {
+      try {
+        await runOnce(opts.outDir);
+      } catch (e) {
+        console.error('Initial run failed (continuing periodic mode):', e);
+      }
+    })();
+
+    setInterval(async () => {
+      try { await runOnce(opts.outDir); } catch (e) { console.error('Periodic run failed', e); }
+    }, 1000 * 60 * 60);
   }
 }
 
