@@ -4,8 +4,11 @@ Summary:
 - Implement a secure tool submission flow so partners and internal teams can submit AI tools for inclusion in the catalog (Phase 7).
 - Deliverables: Submission API with Basic Auth, Admin submission review UI (approve/reject), persistent submissions store, schema validation, logging/audit, CI tests, rollout plan.
 
-Status: in_progress
+Status: canceled
 Priority: medium
+
+Cancelled-By: GSTA-153 — Cancel all open issues in Test AI Tool Library project
+Cancelled-At: 2026-04-22
 
 Context:
 - Product approved the feature: allow programmatic and form-based submissions of new AI tools.

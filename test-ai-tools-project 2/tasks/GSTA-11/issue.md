@@ -7,4 +7,7 @@ Summary:
 Context:
 - This is a high-priority feature requested by Product. Phase 6 focuses on robust server-side search with flexible client-side filters and stable performance at scale.
 
-Status: in_progress
+Status: canceled
+
+Cancelled-By: GSTA-153 — Cancel all open issues in Test AI Tool Library project
+Cancelled-At: 2026-04-22

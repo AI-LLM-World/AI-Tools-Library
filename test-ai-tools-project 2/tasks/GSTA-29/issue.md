@@ -3,8 +3,11 @@ Title: GSTA-29 Remove unwanted task from block to todo
 Summary:
 - Remove an unwanted task that was moved from the "block" column to "todo"; ensure it is deleted or corrected and record root cause.
 
-Status: in_progress
+Status: canceled
 Priority: medium
+
+Cancelled-By: GSTA-153 — Cancel all open issues in Test AI Tool Library project
+Cancelled-At: 2026-04-22
 
 Context:
 - Users noticed an unwanted task appeared in the "todo" column after a migration/board action. The artifact needs to be removed and root cause identified so it does not recur.
